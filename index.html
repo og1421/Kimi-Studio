@@ -561,12 +561,25 @@ async function loadFileTree() {
       return;
     }
 
-    tree.innerHTML = files.map(f => `
-      <div class="file-item" onclick="openFile('${f.name}')" id="fi-${CSS.escape(f.name)}">
-        <span class="file-icon">${fileIcon(f.ext)}</span>
-        <span style="overflow:hidden;text-overflow:ellipsis">${f.name}</span>
-      </div>
-    `).join('');
+    tree.innerHTML = '';
+    files.forEach(f => {
+      const div = document.createElement('div');
+      div.className = 'file-item';
+      div.id = 'fi-' + CSS.escape(f.name);
+      div.onclick = () => openFile(f.name);
+
+      const icon = document.createElement('span');
+      icon.className = 'file-icon';
+      icon.textContent = fileIcon(f.ext);
+
+      const label = document.createElement('span');
+      label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
+      label.textContent = f.name; // textContent é seguro — sem XSS
+
+      div.appendChild(icon);
+      div.appendChild(label);
+      tree.appendChild(div);
+    });
   } catch (e) {
     document.getElementById('file-tree').innerHTML =
       '<div style="padding:14px;color:#f37373;font-size:11px">Erro ao carregar arquivos</div>';
@@ -907,12 +920,22 @@ function extractCodeBlocks(text) {
 }
 
 function renderMarkdown(text) {
-  // Blocos de código
-  text = text.replace(/```[\w]*\n([\s\S]*?)```/g, (_, code) =>
-    `<pre><code>${escHtml(code)}</code></pre>`
-  );
-  // Código inline
-  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Separa blocos de código antes de escapar para não perder a estrutura
+  const codeBlockPlaceholders = [];
+  text = text.replace(/```[\w]*\n([\s\S]*?)```/g, (_, code) => {
+    const idx = codeBlockPlaceholders.length;
+    codeBlockPlaceholders.push(`<pre><code>${escHtml(code)}</code></pre>`);
+    return `\x00CODE${idx}\x00`;
+  });
+
+  // Escapa TODO o texto fora dos blocos de código antes de qualquer innerHTML
+  text = escHtml(text);
+
+  // Restaura os blocos de código já escapados corretamente
+  text = text.replace(/\x00CODE(\d+)\x00/g, (_, i) => codeBlockPlaceholders[i]);
+
+  // Código inline — aplicado após escaping, sobre texto já seguro
+  text = text.replace(/`([^`]+)`/g, (_, c) => `<code>${escHtml(c)}</code>`);
   // Negrito
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Itálico

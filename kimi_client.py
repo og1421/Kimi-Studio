@@ -41,14 +41,11 @@ SYSTEM_PROMPT = (
 def get_client() -> OpenAI:
     """Cria e retorna o cliente Moonshot (compatível com OpenAI SDK)."""
     if not API_KEY:
-        print(
-            "\n[ERRO] MOONSHOT_API_KEY não encontrada.\n"
-            "  1. Copie .env.example → .env\n"
-            "  2. Preencha sua chave em: https://platform.moonshot.ai/console/api-keys\n"
-            "  3. Ou exporte via terminal:  export MOONSHOT_API_KEY=sk-...\n"
+        raise ValueError(
+            "MOONSHOT_API_KEY não encontrada. "
+            "Copie .env.example para .env e preencha sua chave, "
+            "ou exporte via terminal: export MOONSHOT_API_KEY=sk-..."
         )
-        sys.exit(1)
-
     return OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
 

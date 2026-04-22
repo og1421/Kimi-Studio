@@ -30,6 +30,9 @@ ALLOWED_EXTENSIONS = {
 
 HIDDEN = {".venv", "__pycache__", ".git", ".DS_Store"}
 
+MAX_FILE_SIZE_BYTES = 512 * 1024   # 512 KB — evita travar o contexto do modelo
+MAX_MESSAGES        = 40           # limite de mensagens no histórico de chat
+
 
 # ─── Servir frontend ───────────────────────────────────────────────────────────
 
@@ -70,10 +73,12 @@ def read_file():
         return jsonify({"error": "Acesso negado"}), 403
 
     try:
+        if filepath.stat().st_size > MAX_FILE_SIZE_BYTES:
+            return jsonify({"error": "Arquivo muito grande (limite: 512 KB)"}), 413
         content = filepath.read_text(encoding="utf-8")
         return jsonify({"content": content, "filename": filename})
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": "Não foi possível ler o arquivo"}), 400
 
 
 @app.route("/api/file/save", methods=["POST"])
@@ -92,8 +97,8 @@ def save_file():
     try:
         filepath.write_text(content, encoding="utf-8")
         return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    except Exception:
+        return jsonify({"error": "Não foi possível salvar o arquivo"}), 400
 
 
 # ─── API: chat com streaming (SSE) ─────────────────────────────────────────────
@@ -109,6 +114,10 @@ def chat_stream():
 
     if not messages:
         return jsonify({"error": "Nenhuma mensagem fornecida"}), 400
+
+    # Limita histórico para evitar custos excessivos de API
+    if len(messages) > MAX_MESSAGES:
+        messages = [messages[0]] + messages[-(MAX_MESSAGES - 1):]
 
     def generate():
         try:
@@ -135,7 +144,7 @@ def chat_stream():
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": "http://localhost:8000",
         },
     )
 
