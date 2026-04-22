@@ -26,10 +26,9 @@ from kimi_client import get_client, MODEL
 app = Flask(__name__)
 PROJECT_DIR = Path(__file__).parent
 _PROJECT_ROOT = PROJECT_DIR.resolve()
-# Abre o diretório do projeto uma vez; usado como dir_fd em os.open() (openat).
-# Garante que toda abertura de arquivo seja relativa a este fd — sem TOCTOU entre
-# resolução de path e abertura, e sem depender de .resolve() no caminho do usuário.
-_dir_fd: int = os.open(str(_PROJECT_ROOT), os.O_RDONLY)
+# dir_fd para openat() — POSIX only. os.supports_dir_fd detecta suporte real.
+_USE_DIR_FD: bool = os.open in os.supports_dir_fd
+_dir_fd: int = os.open(str(_PROJECT_ROOT), os.O_RDONLY) if _USE_DIR_FD else -1
 _port = int(os.getenv("KIMI_IDE_PORT", 8000))
 _API_TOKEN = secrets.token_hex(32)      # token de sessão gerado no startup; injetado no HTML
 
@@ -78,6 +77,22 @@ def _safe_filename(filename: str) -> bool:
     )
 
 
+def _open_project_file(filename: str, flags: int) -> int:
+    """
+    Abre filename dentro de _PROJECT_ROOT de forma segura.
+
+    POSIX (Linux/macOS): usa openat(_dir_fd) + O_NOFOLLOW — abertura atômica relativa
+    ao diretório já fixado; o kernel rejeita symlinks sem janela de TOCTOU.
+
+    Windows: dir_fd não é suportado (os.open ignora o parâmetro e levanta TypeError).
+    Fallback para path absoluto sem O_NOFOLLOW; symlinks exigem privilégios de
+    administrador no Windows, reduzindo o risco prático.
+    """
+    if _USE_DIR_FD:
+        return os.open(filename, flags | _O_NOFOLLOW, dir_fd=_dir_fd)
+    return os.open(str(_PROJECT_ROOT / filename), flags)
+
+
 # ─── Servir frontend ───────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -121,9 +136,7 @@ def read_file():
 
     fd = -1
     try:
-        # openat(_dir_fd) + O_NOFOLLOW: abertura atômica relativa ao diretório do projeto;
-        # o kernel rejeita symlinks sem TOCTOU entre validação e abertura.
-        fd = os.open(filename, os.O_RDONLY | _O_NOFOLLOW, dir_fd=_dir_fd)
+        fd = _open_project_file(filename, os.O_RDONLY)
         size = os.fstat(fd).st_size
         if size > MAX_FILE_SIZE_BYTES:
             return jsonify({"error": "Arquivo muito grande (limite: 512 KB)"}), 413
@@ -159,7 +172,7 @@ def save_file():
 
     fd = -1
     try:
-        fd = os.open(filename, os.O_WRONLY | os.O_TRUNC | _O_NOFOLLOW, dir_fd=_dir_fd)
+        fd = _open_project_file(filename, os.O_WRONLY | os.O_TRUNC)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             fd = -1
             f.write(content)
