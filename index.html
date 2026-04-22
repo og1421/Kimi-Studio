@@ -547,6 +547,11 @@ body {
 <div class="toast" id="toast"></div>
 
 <script>
+// ─── Auth helper ───────────────────────────────────────────────────────────────
+function apiHeaders(extra = {}) {
+  return { 'Content-Type': 'application/json', 'X-Kimi-Token': _KIMI_TOKEN, ...extra };
+}
+
 // ─── Estado ────────────────────────────────────────────────────────────────────
 let currentFile = null;
 let chatHistory = [];
@@ -570,7 +575,7 @@ window.addEventListener('DOMContentLoaded', () => {
 // ─── Explorador de arquivos ────────────────────────────────────────────────────
 async function loadFileTree() {
   try {
-    const res = await fetch('/api/files');
+    const res = await fetch('/api/files', { headers: apiHeaders() });
     const files = await res.json();
     const tree = document.getElementById('file-tree');
 
@@ -620,7 +625,7 @@ async function openFile(filename) {
     setStatus('Carregando ' + filename + '...');
     const res = await fetch('/api/file/read', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({ filename }),
     });
     const data = await res.json();
@@ -690,7 +695,7 @@ async function saveFile() {
     setStatus('Salvando...');
     const res = await fetch('/api/file/save', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({ filename: currentFile, content }),
     });
     const data = await res.json();
@@ -819,7 +824,7 @@ async function sendMessageWithText(text) {
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({ messages: chatHistory }),
     });
 
