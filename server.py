@@ -23,6 +23,7 @@ from kimi_client import get_client, MODEL
 
 app = Flask(__name__)
 PROJECT_DIR = Path(__file__).parent
+_PROJECT_ROOT = PROJECT_DIR.resolve()   # resolvido uma vez no startup; imune a TOCTOU
 _port = int(os.getenv("KIMI_IDE_PORT", 8000))
 
 ALLOWED_EXTENSIONS = {
@@ -34,6 +35,25 @@ HIDDEN = {".venv", "__pycache__", ".git", ".DS_Store"}
 
 MAX_FILE_SIZE_BYTES = 512 * 1024  # 512 KB
 MAX_MESSAGES = 40
+
+
+def _safe_path(filename: str) -> Path | None:
+    """
+    Valida e resolve o filename em duas camadas:
+    1. Rejeita nomes com separadores de path ou null bytes antes de qualquer I/O
+       (elimina o TOCTOU estrutural — sem separadores não há como escapar do diretório).
+    2. Resolve o path resultante e confirma que está dentro de _PROJECT_ROOT
+       (defesa em profundidade contra symlinks pré-existentes).
+    Retorna o Path resolvido ou None se inválido.
+    """
+    if not filename or "/" in filename or "\\" in filename or "\x00" in filename:
+        return None
+    resolved = (_PROJECT_ROOT / filename).resolve()
+    try:
+        resolved.relative_to(_PROJECT_ROOT)
+    except ValueError:
+        return None
+    return resolved
 
 
 # ─── Servir frontend ───────────────────────────────────────────────────────────
@@ -66,11 +86,9 @@ def read_file():
     """Lê o conteúdo de um arquivo do projeto."""
     data = request.get_json(silent=True) or {}
     filename = data.get("filename", "")
-    filepath = PROJECT_DIR / filename
+    filepath = _safe_path(filename)
 
-    try:
-        filepath.resolve().relative_to(PROJECT_DIR.resolve())
-    except ValueError:
+    if filepath is None:
         return jsonify({"error": "Acesso negado"}), 403
 
     if filepath.suffix not in ALLOWED_EXTENSIONS and filepath.name != ".env.example":
@@ -94,11 +112,9 @@ def save_file():
     data = request.get_json(silent=True) or {}
     filename = data.get("filename", "")
     content = data.get("content", "")
-    filepath = PROJECT_DIR / filename
+    filepath = _safe_path(filename)
 
-    try:
-        filepath.resolve().relative_to(PROJECT_DIR.resolve())
-    except ValueError:
+    if filepath is None:
         return jsonify({"error": "Acesso negado"}), 403
 
     if filepath.suffix not in ALLOWED_EXTENSIONS and filepath.name != ".env.example":
