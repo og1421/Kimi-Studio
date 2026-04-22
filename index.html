@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kimi IDE</title>
+<style>
+:root { color-scheme: light; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0f0f13;
+  color: #e2e2e2;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+/* ── TOP BAR ── */
+.topbar {
+  height: 42px;
+  background: #18181f;
+  border-bottom: 1px solid #2a2a35;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+  flex-shrink: 0;
+  user-select: none;
+}
+.topbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  margin-right: 10px;
+}
+.logo-moon {
+  width: 24px; height: 24px;
+  background: linear-gradient(135deg, #7c6af7, #a78bfa);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+.topbar-btn {
+  padding: 4px 11px;
+  border-radius: 5px;
+  border: 1px solid #2e2e3e;
+  background: #22222e;
+  color: #c4c4d4;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  transition: background 0.15s;
+}
+.topbar-btn:hover { background: #2e2e3e; }
+.topbar-btn:disabled { opacity: 0.4; cursor: default; }
+.topbar-btn.primary { background: #6d56f0; border-color: #6d56f0; color: #fff; }
+.topbar-btn.primary:hover { background: #5c47d8; }
+.topbar-sep { width: 1px; height: 20px; background: #2a2a35; margin: 0 2px; }
+.topbar-model {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #888;
+}
+.model-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; }
+
+/* ── MAIN ── */
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 200px;
+  background: #14141a;
+  border-right: 1px solid #22222e;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar-header {
+  padding: 10px 12px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #555;
+  text-transform: uppercase;
+  border-bottom: 1px solid #1e1e28;
+}
+.file-tree { flex: 1; overflow-y: auto; padding: 4px 0; }
+.file-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 14px;
+  cursor: pointer;
+  color: #999;
+  font-size: 12px;
+  border-left: 2px solid transparent;
+  transition: all 0.12s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-item:hover { background: #1e1e28; color: #ddd; }
+.file-item.active { background: #1e1e2e; color: #fff; border-left-color: #7c6af7; }
+.file-icon { font-size: 13px; flex-shrink: 0; }
+
+/* ── EDITOR ── */
+.editor-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid #22222e;
+}
+.editor-tabs {
+  display: flex;
+  align-items: center;
+  background: #14141a;
+  border-bottom: 1px solid #22222e;
+  height: 35px;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+.tab {
+  padding: 0 14px;
+  height: 100%;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px;
+  color: #888;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.tab.active { color: #ddd; border-bottom-color: #7c6af7; }
+.tab-placeholder { color: #444; font-size: 12px; padding: 0 10px; }
+
+.editor-toolbar {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 10px;
+  background: #18181f;
+  border-bottom: 1px solid #1e1e28;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.quick-btn {
+  padding: 3px 9px;
+  border-radius: 4px;
+  border: 1px solid #2a2a35;
+  background: #1e1e28;
+  color: #bbb;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+.quick-btn:hover { background: #2a2a38; color: #fff; border-color: #7c6af7; }
+.quick-btn:disabled { opacity: 0.4; cursor: default; }
+
+.editor-body { flex: 1; display: flex; overflow: hidden; position: relative; }
+.line-numbers {
+  width: 46px;
+  background: #111118;
+  padding: 12px 0;
+  text-align: right;
+  color: #3a3a4e;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  user-select: none;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.line-numbers div { padding-right: 10px; }
+
+.code-editor {
+  flex: 1;
+  padding: 12px 16px;
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #cdd6f4;
+  background: #12121a;
+  border: none;
+  outline: none;
+  resize: none;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 4;
+}
+.code-editor::placeholder { color: #333; }
+
+.editor-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  gap: 10px;
+  pointer-events: none;
+}
+.editor-empty .empty-icon { font-size: 40px; }
+.editor-empty p { font-size: 13px; }
+
+/* ── CHAT ── */
+.chat-panel {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  background: #13131a;
+  flex-shrink: 0;
+}
+.chat-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid #22222e;
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.chat-avatar {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, #7c6af7, #a78bfa);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.chat-title { font-weight: 600; font-size: 13px; }
+.chat-subtitle { font-size: 10px; color: #666; margin-top: 1px; }
+.chat-ctx-tag {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 7px;
+  background: #7c6af720;
+  border: 1px solid #7c6af740;
+  color: #a78bfa;
+  border-radius: 10px;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg { display: flex; gap: 8px; }
+.msg-av {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.msg-av.kimi { background: linear-gradient(135deg, #7c6af7, #a78bfa); font-size: 13px; }
+.msg-av.user { background: #2a2a38; }
+.msg-body { flex: 1; min-width: 0; }
+.msg-name { font-size: 10px; color: #555; margin-bottom: 3px; font-weight: 600; }
+.msg-bubble {
+  background: #1e1e28;
+  border-radius: 0 8px 8px 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #ccc;
+  word-break: break-word;
+}
+.msg.user .msg-bubble {
+  background: #2a1f5e;
+  border-radius: 8px 0 8px 8px;
+  color: #d4d0ff;
+}
+.msg-bubble code {
+  background: #12121a;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  color: #a6e3a1;
+}
+.msg-bubble pre {
+  background: #0e0e16;
+  border: 1px solid #2a2a38;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  margin-top: 8px;
+  overflow-x: auto;
+  color: #a6e3a1;
+  line-height: 1.55;
+  white-space: pre;
+}
+.msg-bubble pre code { background: none; padding: 0; color: inherit; }
+.apply-btn {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid #7c6af760;
+  background: #7c6af720;
+  color: #a78bfa;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: all 0.12s;
+}
+.apply-btn:hover { background: #7c6af740; }
+
+.typing-indicator { display: flex; gap: 4px; align-items: center; padding: 2px 0; }
+.typing-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #7c6af7;
+  animation: bounce 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-5px); opacity: 1; }
+}
+
+.chat-input-area {
+  padding: 10px 10px;
+  border-top: 1px solid #22222e;
+  flex-shrink: 0;
+}
+.chat-input-box {
+  background: #1a1a24;
+  border: 1px solid #2e2e3e;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex; align-items: flex-end; gap: 8px;
+}
+.chat-input-box:focus-within { border-color: #7c6af7; }
+.chat-textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ddd;
+  font-size: 12.5px;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.5;
+  min-height: 36px;
+  max-height: 120px;
+}
+.chat-textarea::placeholder { color: #444; }
+.send-btn {
+  width: 30px; height: 30px;
+  background: #7c6af7;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  color: white;
+}
+.send-btn:hover { background: #6d5fe0; }
+.send-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── STATUS BAR ── */
+.statusbar {
+  height: 22px;
+  background: #6d56f0;
+  display: flex; align-items: center;
+  padding: 0 12px;
+  gap: 14px;
+  font-size: 10px;
+  color: #e0d9ff;
+  flex-shrink: 0;
+}
+.sb-sep { opacity: 0.4; }
+.sb-right { margin-left: auto; }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a3e; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a5e; }
+
+/* toast */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: #2a2a38;
+  border: 1px solid #3a3a50;
+  color: #ddd;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  opacity: 0;
+  transition: all 0.25s;
+  pointer-events: none;
+  z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: #4ade8060; color: #4ade80; }
+.toast.error { border-color: #f3737360; color: #f37373; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-logo">
+    <div class="logo-moon">🌙</div>
+    Kimi IDE
+  </div>
+  <div class="topbar-sep"></div>
+  <button class="topbar-btn" id="btn-save" onclick="saveFile()" disabled>💾 Salvar</button>
+  <button class="topbar-btn" id="btn-clear-chat" onclick="clearChat()">🗑 Limpar chat</button>
+  <div class="topbar-model">
+    <div class="model-dot" id="status-dot"></div>
+    <span id="status-text">kimi-k2.6 · Moonshot AI</span>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-header">Arquivos do Projeto</div>
+    <div class="file-tree" id="file-tree">
+      <div style="padding:16px 14px;color:#444;font-size:11px">Carregando...</div>
+    </div>
+  </div>
+
+  <!-- EDITOR -->
+  <div class="editor-panel">
+    <div class="editor-tabs">
+      <div class="tab active" id="active-tab">
+        <span id="tab-label" class="tab-placeholder">Nenhum arquivo aberto</span>
+      </div>
+    </div>
+
+    <div class="editor-toolbar">
+      <button class="quick-btn" id="qb-review"   onclick="quickAction('review')"   disabled>🔍 Revisar código</button>
+      <button class="quick-btn" id="qb-bug"      onclick="quickAction('bug')"      disabled>🐛 Corrigir bugs</button>
+      <button class="quick-btn" id="qb-explain"  onclick="quickAction('explain')"  disabled>💬 Explicar</button>
+      <button class="quick-btn" id="qb-refactor" onclick="quickAction('refactor')" disabled>✨ Refatorar</button>
+      <button class="quick-btn" id="qb-doc"      onclick="quickAction('doc')"      disabled>📝 Gerar docstrings</button>
+    </div>
+
+    <div class="editor-body">
+      <div class="line-numbers" id="line-numbers"></div>
+      <textarea
+        class="code-editor"
+        id="code-editor"
+        spellcheck="false"
+        placeholder="Selecione um arquivo na barra lateral para começar..."
+        oninput="onEditorInput()"
+        onscroll="syncScroll()"
+        onkeydown="handleTab(event)"
+      ></textarea>
+      <div class="editor-empty" id="editor-empty">
+        <span class="empty-icon">🌙</span>
+        <p>Selecione um arquivo para editar</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div class="chat-panel">
+    <div class="chat-header">
+      <div class="chat-avatar">🌙</div>
+      <div>
+        <div class="chat-title">Kimi K2.6</div>
+        <div class="chat-subtitle">Assistente de código</div>
+      </div>
+      <div class="chat-ctx-tag" id="chat-ctx-tag">sem arquivo</div>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg">
+        <div class="msg-av kimi">🌙</div>
+        <div class="msg-body">
+          <div class="msg-name">KIMI</div>
+          <div class="msg-bubble">
+            Olá! Sou o Kimi K2.6. Abra um arquivo na barra lateral e posso ajudá-lo a revisar, corrigir, explicar ou refatorar seu código. 🚀
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-box">
+        <textarea
+          class="chat-textarea"
+          id="chat-input"
+          placeholder="Pergunte algo sobre o código..."
+          onkeydown="handleChatKey(event)"
+          oninput="autoResize(this)"
+          rows="1"
+        ></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <span>🌙 kimi-k2.6</span>
+  <span class="sb-sep">|</span>
+  <span id="sb-file">Nenhum arquivo</span>
+  <span class="sb-sep">|</span>
+  <span id="sb-lines">0 linhas</span>
+  <span class="sb-right" id="sb-status">Pronto</span>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Estado ────────────────────────────────────────────────────────────────────
+let currentFile = null;
+let chatHistory = [];
+let isStreaming = false;
+let isDirty = false;
+
+const QUICK_ACTIONS = {
+  review:   "Revise todo o código aberto criticamente. Aponte problemas de lógica, estilo, segurança e boas práticas.",
+  bug:      "Encontre e corrija todos os bugs presentes no código. Mostre o código corrigido completo.",
+  explain:  "Explique o que este código faz de forma clara e didática, função por função.",
+  refactor: "Refatore o código para melhorar legibilidade, organização e qualidade, mantendo o comportamento original.",
+  doc:      "Gere docstrings completas para todas as funções e classes presentes no código.",
+};
+
+// ─── Inicialização ─────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  loadFileTree();
+  updateLineNumbers();
+});
+
+// ─── Explorador de arquivos ────────────────────────────────────────────────────
+async function loadFileTree() {
+  try {
+    const res = await fetch('/api/files');
+    const files = await res.json();
+    const tree = document.getElementById('file-tree');
+
+    if (!files.length) {
+      tree.innerHTML = '<div style="padding:16px 14px;color:#444;font-size:11px">Nenhum arquivo encontrado</div>';
+      return;
+    }
+
+    tree.innerHTML = files.map(f => `
+      <div class="file-item" onclick="openFile('${f.name}')" id="fi-${CSS.escape(f.name)}">
+        <span class="file-icon">${fileIcon(f.ext)}</span>
+        <span style="overflow:hidden;text-overflow:ellipsis">${f.name}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('file-tree').innerHTML =
+      '<div style="padding:14px;color:#f37373;font-size:11px">Erro ao carregar arquivos</div>';
+  }
+}
+
+function fileIcon(ext) {
+  const icons = {
+    '.py': '🐍', '.js': '📜', '.ts': '📘', '.html': '🌐',
+    '.css': '🎨', '.md': '📖', '.json': '🔧', '.txt': '📄',
+    '.yaml': '⚙️', '.yml': '⚙️', '.toml': '⚙️', '.sh': '💻',
+    '.example': '📋',
+  };
+  return icons[ext] || '📄';
+}
+
+// ─── Abrir arquivo ─────────────────────────────────────────────────────────────
+async function openFile(filename) {
+  try {
+    setStatus('Carregando ' + filename + '...');
+    const res = await fetch('/api/file/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
+
+    currentFile = filename;
+    isDirty = false;
+
+    // Editor
+    const editor = document.getElementById('code-editor');
+    editor.value = data.content;
+    document.getElementById('editor-empty').style.display = 'none';
+
+    // Tabs e labels
+    document.getElementById('tab-label').textContent = filename;
+    document.getElementById('tab-label').className = '';
+    document.getElementById('chat-ctx-tag').textContent = '📎 ' + filename;
+
+    // Status bar
+    document.getElementById('sb-file').textContent = filename;
+    updateLineCount();
+    updateLineNumbers();
+    setStatus('Pronto');
+
+    // Botões
+    document.getElementById('btn-save').disabled = false;
+    enableQuickBtns(true);
+
+    // Sidebar highlight
+    document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
+    const fi = document.getElementById('fi-' + CSS.escape(filename));
+    if (fi) fi.classList.add('active');
+
+    // Contexto do chat
+    chatHistory = [{
+      role: 'system',
+      content: buildSystemPrompt(filename, data.content),
+    }];
+
+    showToast('✓ ' + filename + ' aberto', 'success');
+  } catch (e) {
+    showToast('Erro ao abrir arquivo', 'error');
+    setStatus('Erro');
+  }
+}
+
+function buildSystemPrompt(filename, content) {
+  const ext = filename.split('.').pop();
+  return `Você é o Kimi, um assistente de IA especializado em código, criado pela Moonshot AI.
+
+O arquivo atualmente aberto no editor é: ${filename}
+
+Conteúdo do arquivo:
+\`\`\`${ext}
+${content}
+\`\`\`
+
+Ao sugerir alterações de código, sempre formate-as dentro de blocos de código markdown (\`\`\`).
+Seja direto, preciso e útil.`;
+}
+
+// ─── Salvar arquivo ─────────────────────────────────────────────────────────────
+async function saveFile() {
+  if (!currentFile) return;
+  const content = document.getElementById('code-editor').value;
+  try {
+    setStatus('Salvando...');
+    const res = await fetch('/api/file/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: currentFile, content }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      isDirty = false;
+      updateTitle();
+      showToast('✓ Arquivo salvo', 'success');
+      setStatus('Salvo');
+      // Atualiza contexto do chat com novo conteúdo
+      if (chatHistory.length > 0) {
+        chatHistory[0].content = buildSystemPrompt(currentFile, content);
+      }
+    } else {
+      showToast(data.error, 'error');
+    }
+  } catch (e) {
+    showToast('Erro ao salvar', 'error');
+  }
+}
+
+// ─── Editor helpers ─────────────────────────────────────────────────────────────
+function onEditorInput() {
+  isDirty = true;
+  updateTitle();
+  updateLineCount();
+  updateLineNumbers();
+  // Atualiza contexto em tempo real (debounce)
+  clearTimeout(window._debounce);
+  window._debounce = setTimeout(() => {
+    if (currentFile && chatHistory.length > 0) {
+      chatHistory[0].content = buildSystemPrompt(
+        currentFile,
+        document.getElementById('code-editor').value
+      );
+    }
+  }, 1000);
+}
+
+function updateTitle() {
+  const label = document.getElementById('tab-label');
+  label.textContent = (isDirty ? '● ' : '') + (currentFile || 'Nenhum arquivo');
+}
+
+function updateLineCount() {
+  const lines = document.getElementById('code-editor').value.split('\n').length;
+  document.getElementById('sb-lines').textContent = lines + ' linhas';
+}
+
+function updateLineNumbers() {
+  const editor = document.getElementById('code-editor');
+  const lines = editor.value ? editor.value.split('\n').length : 1;
+  const ln = document.getElementById('line-numbers');
+  ln.innerHTML = Array.from({ length: lines }, (_, i) =>
+    `<div>${i + 1}</div>`
+  ).join('');
+}
+
+function syncScroll() {
+  const editor = document.getElementById('code-editor');
+  const ln = document.getElementById('line-numbers');
+  ln.scrollTop = editor.scrollTop;
+}
+
+function handleTab(e) {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const el = e.target;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    el.value = el.value.substring(0, start) + '    ' + el.value.substring(end);
+    el.selectionStart = el.selectionEnd = start + 4;
+    onEditorInput();
+  }
+  if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveFile(); }
+  if (e.metaKey && e.key === 's') { e.preventDefault(); saveFile(); }
+}
+
+function enableQuickBtns(enabled) {
+  ['qb-review','qb-bug','qb-explain','qb-refactor','qb-doc'].forEach(id => {
+    document.getElementById(id).disabled = !enabled;
+  });
+}
+
+// ─── Ações rápidas ─────────────────────────────────────────────────────────────
+function quickAction(type) {
+  if (!currentFile || isStreaming) return;
+  const prompt = QUICK_ACTIONS[type];
+  sendMessageWithText(prompt);
+}
+
+// ─── Chat ───────────────────────────────────────────────────────────────────────
+function handleChatKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || isStreaming) return;
+  input.value = '';
+  input.style.height = 'auto';
+  sendMessageWithText(text);
+}
+
+async function sendMessageWithText(text) {
+  if (isStreaming) return;
+  isStreaming = true;
+  setStreaming(true);
+
+  // Adiciona mensagem do usuário
+  appendMessage('user', text);
+  chatHistory.push({ role: 'user', content: text });
+
+  // Cria bolha de resposta vazia do Kimi
+  const msgId = 'msg-' + Date.now();
+  appendKimiMessage(msgId);
+
+  try {
+    const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: chatHistory }),
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const json = JSON.parse(line.slice(6));
+          if (json.error) {
+            updateKimiMessage(msgId, '❌ Erro: ' + json.error, true);
+            break;
+          }
+          if (json.done) break;
+          if (json.text) {
+            fullText += json.text;
+            updateKimiMessage(msgId, fullText, false);
+          }
+        } catch (_) {}
+      }
+    }
+
+    // Finaliza
+    updateKimiMessage(msgId, fullText, true);
+    chatHistory.push({ role: 'assistant', content: fullText });
+
+  } catch (e) {
+    updateKimiMessage(msgId, '❌ Erro de conexão: ' + e.message, true);
+  } finally {
+    isStreaming = false;
+    setStreaming(false);
+  }
+}
+
+function appendMessage(role, text) {
+  const msgs = document.getElementById('chat-messages');
+  const isUser = role === 'user';
+  const div = document.createElement('div');
+  div.className = 'msg' + (isUser ? ' user' : '');
+  div.innerHTML = isUser
+    ? `<div class="msg-body"><div class="msg-name" style="text-align:right">VOCÊ</div>
+       <div class="msg-bubble">${escHtml(text)}</div></div>
+       <div class="msg-av user">OL</div>`
+    : `<div class="msg-av kimi">🌙</div>
+       <div class="msg-body"><div class="msg-name">KIMI</div>
+       <div class="msg-bubble">${escHtml(text)}</div></div>`;
+  msgs.appendChild(div);
+  scrollChat();
+}
+
+function appendKimiMessage(id) {
+  const msgs = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'msg';
+  div.id = id;
+  div.innerHTML = `<div class="msg-av kimi">🌙</div>
+    <div class="msg-body"><div class="msg-name">KIMI</div>
+    <div class="msg-bubble" id="${id}-bubble">
+      <div class="typing-indicator">
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+      </div>
+    </div></div>`;
+  msgs.appendChild(div);
+  scrollChat();
+}
+
+function updateKimiMessage(id, text, final) {
+  const bubble = document.getElementById(id + '-bubble');
+  if (!bubble) return;
+  bubble.innerHTML = renderMarkdown(text);
+  if (final) {
+    // Procura blocos de código para oferecer "Aplicar no editor"
+    const codeBlocks = extractCodeBlocks(text);
+    if (codeBlocks.length > 0 && currentFile) {
+      codeBlocks.forEach((code, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'apply-btn';
+        btn.innerHTML = `✅ Aplicar no editor${codeBlocks.length > 1 ? ' (bloco ' + (i+1) + ')' : ''}`;
+        btn.onclick = () => applyCode(code, btn);
+        bubble.appendChild(btn);
+      });
+    }
+  }
+  scrollChat();
+}
+
+function applyCode(code, btn) {
+  document.getElementById('code-editor').value = code;
+  onEditorInput();
+  btn.innerHTML = '✓ Aplicado!';
+  btn.style.opacity = '0.6';
+  btn.disabled = true;
+  showToast('Código aplicado no editor', 'success');
+}
+
+function extractCodeBlocks(text) {
+  const regex = /```[\w]*\n([\s\S]*?)```/g;
+  const blocks = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1].trim()) blocks.push(match[1].trim());
+  }
+  return blocks;
+}
+
+function renderMarkdown(text) {
+  // Blocos de código
+  text = text.replace(/```[\w]*\n([\s\S]*?)```/g, (_, code) =>
+    `<pre><code>${escHtml(code)}</code></pre>`
+  );
+  // Código inline
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Negrito
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Itálico
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Quebras de linha
+  text = text.replace(/\n/g, '<br>');
+  return text;
+}
+
+function escHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function clearChat() {
+  const msgs = document.getElementById('chat-messages');
+  msgs.innerHTML = `<div class="msg">
+    <div class="msg-av kimi">🌙</div>
+    <div class="msg-body">
+      <div class="msg-name">KIMI</div>
+      <div class="msg-bubble">Chat limpo! Como posso ajudar?</div>
+    </div>
+  </div>`;
+  chatHistory = currentFile
+    ? [chatHistory[0]]
+    : [];
+}
+
+function scrollChat() {
+  const msgs = document.getElementById('chat-messages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ─── UI helpers ────────────────────────────────────────────────────────────────
+function setStreaming(active) {
+  document.getElementById('send-btn').disabled = active;
+  document.getElementById('chat-input').disabled = active;
+  enableQuickBtns(!active && !!currentFile);
+  setStatus(active ? 'Kimi respondendo...' : 'Pronto');
+}
+
+function setStatus(text) {
+  document.getElementById('sb-status').textContent = text;
+}
+
+let toastTimer;
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = 'toast'; }, 2500);
+}
+</script>
+</body>
+</html>
