@@ -11,12 +11,14 @@ Acesse no navegador:
     http://localhost:8000
 """
 
+import atexit
 import errno
 import functools
 import logging
 import os
 import json
 import secrets
+import sys
 from pathlib import Path
 from flask import Flask, request, jsonify, Response, send_from_directory
 import openai
@@ -25,9 +27,12 @@ from kimi_client import get_client, MODEL
 
 app = Flask(__name__)
 _PROJECT_ROOT = Path(__file__).parent.resolve()
-# dir_fd para openat() — POSIX only. os.supports_dir_fd detecta suporte real.
-_USE_DIR_FD: bool = os.open in os.supports_dir_fd
+# dir_fd para openat() — disponível em todo POSIX (Linux/macOS); ausente no Windows.
+# os.supports_dir_fd cobre funções de alto nível, não os.open — usa-se sys.platform.
+_USE_DIR_FD: bool = sys.platform != "win32"
 _dir_fd: int = os.open(str(_PROJECT_ROOT), os.O_RDONLY) if _USE_DIR_FD else -1
+if _dir_fd >= 0:
+    atexit.register(os.close, _dir_fd)
 _port = int(os.getenv("KIMI_IDE_PORT", 8000))
 _API_TOKEN = secrets.token_hex(32)      # token de sessão gerado no startup; injetado no HTML
 
