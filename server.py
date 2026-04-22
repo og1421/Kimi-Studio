@@ -11,20 +11,38 @@ Acesse no navegador:
     http://localhost:8000
 """
 
+import errno
+import functools
 import logging
 import os
 import json
+import secrets
 from pathlib import Path
 from flask import Flask, request, jsonify, Response, send_from_directory
 import openai
-
 
 from kimi_client import get_client, MODEL
 
 app = Flask(__name__)
 PROJECT_DIR = Path(__file__).parent
-_PROJECT_ROOT = PROJECT_DIR.resolve()   # resolvido uma vez no startup; imune a TOCTOU
+_PROJECT_ROOT = PROJECT_DIR.resolve()
+# Abre o diretório do projeto uma vez; usado como dir_fd em os.open() (openat).
+# Garante que toda abertura de arquivo seja relativa a este fd — sem TOCTOU entre
+# resolução de path e abertura, e sem depender de .resolve() no caminho do usuário.
+_dir_fd: int = os.open(str(_PROJECT_ROOT), os.O_RDONLY)
 _port = int(os.getenv("KIMI_IDE_PORT", 8000))
+_API_TOKEN = secrets.token_hex(32)      # token de sessão gerado no startup; injetado no HTML
+
+
+def _require_token(f):
+    """Decorator: rejeita requests sem o token de sessão correto."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("X-Kimi-Token", "")
+        if not secrets.compare_digest(token, _API_TOKEN):
+            return jsonify({"error": "Não autorizado"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 ALLOWED_EXTENSIONS = {
     ".py", ".txt", ".md", ".json", ".env.example",
@@ -36,36 +54,37 @@ HIDDEN = {".venv", "__pycache__", ".git", ".DS_Store"}
 MAX_FILE_SIZE_BYTES = 512 * 1024  # 512 KB
 MAX_MESSAGES = 40
 
+# O_NOFOLLOW rejeita atomicamente o acesso se o componente final do path for um symlink
+# (POSIX: Linux/macOS). No Windows getattr devolve 0 — sem efeito, mas symlinks lá
+# exigem privilégios de administrador, reduzindo o risco.
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
-def _safe_path(filename: str) -> Path | None:
+
+def _safe_filename(filename: str) -> bool:
     """
-    Valida e resolve o filename em duas camadas:
-    1. Rejeita nomes com separadores de path ou null bytes antes de qualquer I/O
-       (elimina o TOCTOU estrutural — sem separadores não há como escapar do diretório).
-    2. Resolve o path resultante e confirma que está dentro de _PROJECT_ROOT
-       (defesa em profundidade contra symlinks pré-existentes).
-    Retorna o Path resolvido ou None se inválido.
+    Valida o filename para uso com os.open(filename, ..., dir_fd=_dir_fd).
+
+    Rejeita qualquer nome com separadores de path ou null bytes — sem separadores
+    não há como escapar do diretório mesmo que .resolve() não seja chamado.
+    A contenção final é feita pelo kernel via openat(_dir_fd) + O_NOFOLLOW:
+    o arquivo é aberto atomicamente relativo ao diretório já aberto, sem TOCTOU.
     """
-    if not filename or "/" in filename or "\\" in filename or "\x00" in filename:
-        return None
-    resolved = (_PROJECT_ROOT / filename).resolve()
-    try:
-        resolved.relative_to(_PROJECT_ROOT)
-    except ValueError:
-        return None
-    return resolved
+    return bool(filename) and "/" not in filename and "\\" not in filename and "\x00" not in filename
 
 
 # ─── Servir frontend ───────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    return send_from_directory(PROJECT_DIR, "index.html")
+    html = (PROJECT_DIR / "index.html").read_text(encoding="utf-8")
+    injection = f'<script>const _KIMI_TOKEN = "{_API_TOKEN}";</script>'
+    return html.replace("</head>", injection + "\n</head>", 1)
 
 
 # ─── API: arquivos ─────────────────────────────────────────────────────────────
 
 @app.route("/api/files")
+@_require_token
 def list_files():
     """Lista arquivos do projeto (não ocultos e com extensão permitida)."""
     files = []
@@ -82,58 +101,79 @@ def list_files():
 
 
 @app.route("/api/file/read", methods=["POST"])
+@_require_token
 def read_file():
     """Lê o conteúdo de um arquivo do projeto."""
     data = request.get_json(silent=True) or {}
     filename = data.get("filename", "")
-    filepath = _safe_path(filename)
 
-    if filepath is None:
+    if not _safe_filename(filename):
         return jsonify({"error": "Acesso negado"}), 403
 
-    if filepath.suffix not in ALLOWED_EXTENSIONS and filepath.name != ".env.example":
+    if Path(filename).suffix not in ALLOWED_EXTENSIONS and filename != ".env.example":
         return jsonify({"error": "Tipo de arquivo não permitido"}), 403
 
+    fd = -1
     try:
-        if not filepath.exists():
-            return jsonify({"error": "Arquivo não encontrado"}), 404
-        if filepath.stat().st_size > MAX_FILE_SIZE_BYTES:
+        # openat(_dir_fd) + O_NOFOLLOW: abertura atômica relativa ao diretório do projeto;
+        # o kernel rejeita symlinks sem TOCTOU entre validação e abertura.
+        fd = os.open(filename, os.O_RDONLY | _O_NOFOLLOW, dir_fd=_dir_fd)
+        size = os.fstat(fd).st_size
+        if size > MAX_FILE_SIZE_BYTES:
             return jsonify({"error": "Arquivo muito grande (limite: 512 KB)"}), 413
-        content = filepath.read_text(encoding="utf-8")
+        with os.fdopen(fd, "r", encoding="utf-8") as f:
+            fd = -1
+            content = f.read()
         return jsonify({"content": content, "filename": filename})
-    except Exception:
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            return jsonify({"error": "Acesso negado"}), 403
+        if e.errno == errno.ENOENT:
+            return jsonify({"error": "Arquivo não encontrado"}), 404
         logging.exception("Erro ao ler arquivo: %s", filename)
         return jsonify({"error": "Não foi possível ler o arquivo"}), 400
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 @app.route("/api/file/save", methods=["POST"])
+@_require_token
 def save_file():
     """Salva o conteúdo editado de um arquivo existente."""
     data = request.get_json(silent=True) or {}
     filename = data.get("filename", "")
     content = data.get("content", "")
-    filepath = _safe_path(filename)
 
-    if filepath is None:
+    if not _safe_filename(filename):
         return jsonify({"error": "Acesso negado"}), 403
 
-    if filepath.suffix not in ALLOWED_EXTENSIONS and filepath.name != ".env.example":
+    if Path(filename).suffix not in ALLOWED_EXTENSIONS and filename != ".env.example":
         return jsonify({"error": "Tipo de arquivo não permitido"}), 403
 
-    if not filepath.exists():
-        return jsonify({"error": "Arquivo não encontrado"}), 404
-
+    fd = -1
     try:
-        filepath.write_text(content, encoding="utf-8")
+        fd = os.open(filename, os.O_WRONLY | os.O_TRUNC | _O_NOFOLLOW, dir_fd=_dir_fd)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1
+            f.write(content)
         return jsonify({"success": True})
-    except Exception:
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            return jsonify({"error": "Acesso negado"}), 403
+        if e.errno == errno.ENOENT:
+            return jsonify({"error": "Arquivo não encontrado"}), 404
         logging.exception("Erro ao salvar arquivo: %s", filename)
         return jsonify({"error": "Não foi possível salvar o arquivo"}), 400
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 # ─── API: chat com streaming (SSE) ─────────────────────────────────────────────
 
 @app.route("/api/chat/stream", methods=["POST"])
+@_require_token
 def chat_stream():
     """
     Recebe o histórico de mensagens e faz streaming da resposta do Kimi
@@ -203,4 +243,4 @@ if __name__ == "__main__":
     print(f"   Modelo: {MODEL}")
     print(f"   Pasta : {PROJECT_DIR}")
     print("\n   Pressione Ctrl+C para encerrar.\n")
-    app.run(debug=False, port=_port, threaded=True)
+    app.run(host="127.0.0.1", port=_port, debug=False, threaded=True)
