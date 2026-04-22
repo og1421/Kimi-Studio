@@ -64,12 +64,18 @@ def _safe_filename(filename: str) -> bool:
     """
     Valida o filename para uso com os.open(filename, ..., dir_fd=_dir_fd).
 
-    Rejeita qualquer nome com separadores de path ou null bytes — sem separadores
-    não há como escapar do diretório mesmo que .resolve() não seja chamado.
-    A contenção final é feita pelo kernel via openat(_dir_fd) + O_NOFOLLOW:
-    o arquivo é aberto atomicamente relativo ao diretório já aberto, sem TOCTOU.
+    Rejeita separadores de path, null bytes e componentes especiais de diretório
+    (. e ..) — sem estes não há como escapar do diretório via openat().
+    A contenção final é feita pelo kernel: openat(_dir_fd) + O_NOFOLLOW abre o
+    arquivo atomicamente relativo ao diretório já fixado, sem TOCTOU.
     """
-    return bool(filename) and "/" not in filename and "\\" not in filename and "\x00" not in filename
+    return (
+        bool(filename)
+        and filename not in (".", "..")
+        and "/" not in filename
+        and "\\" not in filename
+        and "\x00" not in filename
+    )
 
 
 # ─── Servir frontend ───────────────────────────────────────────────────────────
