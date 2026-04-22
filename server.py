@@ -24,8 +24,7 @@ import openai
 from kimi_client import get_client, MODEL
 
 app = Flask(__name__)
-PROJECT_DIR = Path(__file__).parent
-_PROJECT_ROOT = PROJECT_DIR.resolve()
+_PROJECT_ROOT = Path(__file__).parent.resolve()
 # dir_fd para openat() — POSIX only. os.supports_dir_fd detecta suporte real.
 _USE_DIR_FD: bool = os.open in os.supports_dir_fd
 _dir_fd: int = os.open(str(_PROJECT_ROOT), os.O_RDONLY) if _USE_DIR_FD else -1
@@ -97,7 +96,7 @@ def _open_project_file(filename: str, flags: int) -> int:
 
 @app.route("/")
 def index():
-    html = (PROJECT_DIR / "index.html").read_text(encoding="utf-8")
+    html = (_PROJECT_ROOT / "index.html").read_text(encoding="utf-8")
     injection = f'<script>const _KIMI_TOKEN = "{_API_TOKEN}";</script>'
     return html.replace("</head>", injection + "\n</head>", 1)
 
@@ -109,8 +108,10 @@ def index():
 def list_files():
     """Lista arquivos do projeto (não ocultos e com extensão permitida)."""
     files = []
-    for f in sorted(PROJECT_DIR.iterdir()):
+    for f in sorted(_PROJECT_ROOT.iterdir()):
         if f.name in HIDDEN or f.name.startswith(".venv"):
+            continue
+        if f.is_symlink():
             continue
         if f.is_file() and (f.suffix in ALLOWED_EXTENSIONS or f.name == ".env.example"):
             files.append({
@@ -260,6 +261,6 @@ if __name__ == "__main__":
     print(f"\n🌙 Kimi IDE iniciada!")
     print(f"   Acesse: http://localhost:{_port}")
     print(f"   Modelo: {MODEL}")
-    print(f"   Pasta : {PROJECT_DIR}")
+    print(f"   Pasta : {_PROJECT_ROOT}")
     print("\n   Pressione Ctrl+C para encerrar.\n")
     app.run(host="127.0.0.1", port=_port, debug=False, threaded=True)
