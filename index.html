@@ -557,6 +557,7 @@ let currentFile = null;
 let chatHistory = [];
 let isStreaming = false;
 let isDirty = false;
+const fileCache = new Map(); // filename → conteúdo; evita re-fetch em arquivos já abertos
 
 const QUICK_ACTIONS = {
   review:   "Revise todo o código aberto criticamente. Aponte problemas de lógica, estilo, segurança e boas práticas.",
@@ -621,22 +622,30 @@ function fileIcon(ext) {
 
 // ─── Abrir arquivo ─────────────────────────────────────────────────────────────
 async function openFile(filename) {
+  if (filename === currentFile) return;
   try {
-    setStatus('Carregando ' + filename + '...');
-    const res = await fetch('/api/file/read', {
-      method: 'POST',
-      headers: apiHeaders(),
-      body: JSON.stringify({ filename }),
-    });
-    const data = await res.json();
-    if (data.error) { showToast(data.error, 'error'); return; }
+    let content;
+    if (fileCache.has(filename)) {
+      content = fileCache.get(filename);
+    } else {
+      setStatus('Carregando ' + filename + '...');
+      const res = await fetch('/api/file/read', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ filename }),
+      });
+      const data = await res.json();
+      if (data.error) { showToast(data.error, 'error'); return; }
+      content = data.content;
+      fileCache.set(filename, content);
+    }
 
     currentFile = filename;
     isDirty = false;
 
     // Editor
     const editor = document.getElementById('code-editor');
-    editor.value = data.content;
+    editor.value = content;
     document.getElementById('editor-empty').style.display = 'none';
 
     // Tabs e labels
@@ -662,7 +671,7 @@ async function openFile(filename) {
     // Contexto do chat
     chatHistory = [{
       role: 'system',
-      content: buildSystemPrompt(filename, data.content),
+      content: buildSystemPrompt(filename, content),
     }];
 
     showToast('✓ ' + filename + ' aberto', 'success');
@@ -701,6 +710,7 @@ async function saveFile() {
     const data = await res.json();
     if (data.success) {
       isDirty = false;
+      fileCache.set(currentFile, content);
       updateTitle();
       showToast('✓ Arquivo salvo', 'success');
       setStatus('Salvo');
