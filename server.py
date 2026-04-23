@@ -27,7 +27,10 @@ import openai
 from kimi_client import get_client, MODEL
 
 app = Flask(__name__)
-_PROJECT_ROOT = Path(__file__).parent.resolve()
+# .absolute() torna o path absoluto sem seguir symlinks do próprio script.
+# .resolve() seguiria o link e apontaria para o diretório real do target,
+# expondo um path diferente do que o operador espera ao usar um symlink.
+_PROJECT_ROOT = Path(__file__).parent.absolute()
 # dir_fd para openat() — disponível em todo POSIX (Linux/macOS); ausente no Windows.
 # os.supports_dir_fd cobre funções de alto nível, não os.open — usa-se sys.platform.
 _USE_DIR_FD: bool = sys.platform != "win32"
@@ -140,7 +143,7 @@ def list_files():
 def read_file():
     """Lê o conteúdo de um arquivo do projeto."""
     data = request.get_json(silent=True) or {}
-    filename = data.get("filename", "")
+    filename = data.get("filename") or ""
 
     if not _safe_filename(filename):
         return jsonify({"error": "Acesso negado"}), 403
@@ -177,8 +180,8 @@ def read_file():
 def save_file():
     """Salva o conteúdo editado de um arquivo existente."""
     data = request.get_json(silent=True) or {}
-    filename = data.get("filename", "")
-    content = data.get("content", "")
+    filename = data.get("filename") or ""
+    content  = data.get("content") or ""
 
     if not _safe_filename(filename):
         return jsonify({"error": "Acesso negado"}), 403
@@ -186,14 +189,19 @@ def save_file():
     if Path(filename).suffix not in ALLOWED_EXTENSIONS and filename != ".env.example":
         return jsonify({"error": "Tipo de arquivo não permitido"}), 403
 
+    if len(content.encode("utf-8")) > MAX_FILE_SIZE_BYTES:
+        return jsonify({"error": "Conteúdo excede o limite permitido (512 KB)"}), 413
+
     fd = -1
     try:
-        fd = _open_project_file(filename, os.O_WRONLY | os.O_TRUNC)
+        fd = _open_project_file(filename, os.O_WRONLY)
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
             return jsonify({"error": "Acesso negado"}), 403
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            fd = -1
+            fd = -1  # fdopen assume a propriedade do fd
             f.write(content)
         return jsonify({"success": True})
     except OSError as e:
