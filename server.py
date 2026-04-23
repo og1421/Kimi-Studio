@@ -17,6 +17,7 @@ import functools
 import logging
 import os
 import json
+import re
 import secrets
 import stat
 import sys
@@ -74,22 +75,27 @@ _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 # impede que usuários sem privilégio criem hardlinks para arquivos que não possuem.
 
 
+# Nomes reservados do Windows (CON, NUL, COM1…9, LPT1…9, etc.).
+# No Windows, os.open("NUL", ...) abre o dispositivo do sistema — bypass de segurança.
+_WIN_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)", re.IGNORECASE)
+
+
 def _safe_filename(filename: str) -> bool:
     """
     Valida o filename para uso com os.open(filename, ..., dir_fd=_dir_fd).
 
-    Rejeita separadores de path, null bytes e componentes especiais de diretório
-    (. e ..) — sem estes não há como escapar do diretório via openat().
-    A contenção final é feita pelo kernel: openat(_dir_fd) + O_NOFOLLOW abre o
-    arquivo atomicamente relativo ao diretório já fixado, sem TOCTOU.
+    Rejeita: string vazia, . e .., separadores de path, null bytes e nomes
+    reservados do Windows (NUL, CON, COM1…). A contenção final é feita pelo
+    kernel: openat(_dir_fd) + O_NOFOLLOW abre atomicamente relativo ao diretório
+    já fixado, sem TOCTOU.
     """
-    return (
-        bool(filename)
-        and filename not in (".", "..")
-        and "/" not in filename
-        and "\\" not in filename
-        and "\x00" not in filename
-    )
+    if not filename or filename in (".", ".."):
+        return False
+    if "/" in filename or "\\" in filename or "\x00" in filename:
+        return False
+    if sys.platform == "win32" and _WIN_RESERVED.match(filename):
+        return False
+    return True
 
 
 def _open_project_file(filename: str, flags: int) -> int:
@@ -99,13 +105,25 @@ def _open_project_file(filename: str, flags: int) -> int:
     POSIX (Linux/macOS): usa openat(_dir_fd) + O_NOFOLLOW — abertura atômica relativa
     ao diretório já fixado; o kernel rejeita symlinks sem janela de TOCTOU.
 
-    Windows: dir_fd não é suportado (os.open ignora o parâmetro e levanta TypeError).
-    Fallback para path absoluto sem O_NOFOLLOW; symlinks exigem privilégios de
-    administrador no Windows, reduzindo o risco prático.
+    Windows: dir_fd não é suportado. Usa os.path.join (não pathlib /) para evitar o
+    comportamento documentado do pathlib em que um RHS absoluto sobrescreve a base
+    (Path("base") / "C:/foo" → Path("C:/foo")). Valida com os.path.commonpath como
+    defesa em profundidade contra regressões futuras em _safe_filename.
+    Symlinks exigem privilégios de administrador no Windows, reduzindo o risco prático.
     """
     if _USE_DIR_FD:
         return os.open(filename, flags | _O_NOFOLLOW, dir_fd=_dir_fd)
-    return os.open(str(_PROJECT_ROOT / filename), flags)
+
+    root = str(_PROJECT_ROOT)
+    target = os.path.normpath(os.path.join(root, filename))
+    try:
+        common = os.path.commonpath([target, root])
+    except ValueError:
+        # commonpath levanta ValueError em Windows se os paths estiverem em drives diferentes
+        raise OSError(errno.ELOOP, "Acesso negado", filename)
+    if common != root:
+        raise OSError(errno.ELOOP, "Acesso negado", filename)
+    return os.open(target, flags)
 
 
 # ─── Servir frontend ───────────────────────────────────────────────────────────
@@ -163,6 +181,8 @@ def read_file():
             fd = -1
             content = f.read()
         return jsonify({"content": content, "filename": filename})
+    except UnicodeDecodeError:
+        return jsonify({"error": "Arquivo não é UTF-8 válido"}), 415
     except OSError as e:
         if e.errno == errno.ELOOP:
             return jsonify({"error": "Acesso negado"}), 403
