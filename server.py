@@ -192,28 +192,45 @@ def save_file():
     if len(content.encode("utf-8")) > MAX_FILE_SIZE_BYTES:
         return jsonify({"error": "Conteúdo excede o limite permitido (512 KB)"}), 413
 
-    fd = -1
+    # Fase 1: valida o arquivo alvo sem modificá-lo.
+    val_fd = -1
     try:
-        fd = _open_project_file(filename, os.O_WRONLY)
-        st = os.fstat(fd)
+        val_fd = _open_project_file(filename, os.O_RDONLY)
+        st = os.fstat(val_fd)
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
             return jsonify({"error": "Acesso negado"}), 403
-        os.ftruncate(fd, 0)
-        os.lseek(fd, 0, os.SEEK_SET)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            fd = -1  # fdopen assume a propriedade do fd
-            f.write(content)
-        return jsonify({"success": True})
     except OSError as e:
         if e.errno == errno.ELOOP:
             return jsonify({"error": "Acesso negado"}), 403
         if e.errno == errno.ENOENT:
             return jsonify({"error": "Arquivo não encontrado"}), 404
+        logging.exception("Erro ao validar arquivo: %s", filename)
+        return jsonify({"error": "Não foi possível salvar o arquivo"}), 400
+    finally:
+        if val_fd >= 0:
+            os.close(val_fd)
+
+    # Fase 2: escreve em arquivo temporário e renomeia atomicamente.
+    # Se houver falha entre escrita e rename, o original permanece intacto.
+    tmp_name = f".{filename}.tmp"
+    tmp_fd = -1
+    try:
+        tmp_fd = _open_project_file(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            tmp_fd = -1
+            f.write(content)
+        os.replace(_PROJECT_ROOT / tmp_name, _PROJECT_ROOT / filename)
+        return jsonify({"success": True})
+    except OSError:
         logging.exception("Erro ao salvar arquivo: %s", filename)
         return jsonify({"error": "Não foi possível salvar o arquivo"}), 400
     finally:
-        if fd >= 0:
-            os.close(fd)
+        if tmp_fd >= 0:
+            os.close(tmp_fd)
+        try:
+            (_PROJECT_ROOT / tmp_name).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 # ─── API: chat com streaming (SSE) ─────────────────────────────────────────────
