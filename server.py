@@ -18,6 +18,7 @@ import logging
 import os
 import json
 import secrets
+import stat
 import sys
 from pathlib import Path
 from flask import Flask, request, jsonify, Response, send_from_directory
@@ -62,6 +63,13 @@ MAX_MESSAGES = 40
 # exigem privilégios de administrador, reduzindo o risco.
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
+# PRESSUPOSTO DE SEGURANÇA: o diretório do projeto (_PROJECT_ROOT) não é gravável
+# por atacantes. Se um adversário puder criar hardlinks dentro dele, poderá apontar
+# para arquivos fora do projeto (ex: /etc/shadow). O_NOFOLLOW e openat() não
+# detectam hardlinks; a mitigação de userspace é st_nlink == 1 (ver read_file /
+# save_file). No Linux, /proc/sys/fs/protected_hardlinks = 1 (padrão desde 3.6)
+# impede que usuários sem privilégio criem hardlinks para arquivos que não possuem.
+
 
 def _safe_filename(filename: str) -> bool:
     """
@@ -102,7 +110,7 @@ def _open_project_file(filename: str, flags: int) -> int:
 @app.route("/")
 def index():
     html = (_PROJECT_ROOT / "index.html").read_text(encoding="utf-8")
-    injection = f'<script>const _KIMI_TOKEN = "{_API_TOKEN}";</script>'
+    injection = f'<script>const _KIMI_TOKEN = {json.dumps(_API_TOKEN)};</script>'
     return html.replace("</head>", injection + "\n</head>", 1)
 
 
@@ -143,8 +151,10 @@ def read_file():
     fd = -1
     try:
         fd = _open_project_file(filename, os.O_RDONLY)
-        size = os.fstat(fd).st_size
-        if size > MAX_FILE_SIZE_BYTES:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            return jsonify({"error": "Acesso negado"}), 403
+        if st.st_size > MAX_FILE_SIZE_BYTES:
             return jsonify({"error": "Arquivo muito grande (limite: 512 KB)"}), 413
         with os.fdopen(fd, "r", encoding="utf-8") as f:
             fd = -1
@@ -179,6 +189,9 @@ def save_file():
     fd = -1
     try:
         fd = _open_project_file(filename, os.O_WRONLY | os.O_TRUNC)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            return jsonify({"error": "Acesso negado"}), 403
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             fd = -1
             f.write(content)
